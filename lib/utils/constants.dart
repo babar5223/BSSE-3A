@@ -2,14 +2,17 @@ class AuthConstants {
   AuthConstants._();
 
   static const int minPasswordLength = 8;
-  static const String passwordPepper = 'bsse_3a_demo_pepper';
+  static const int saltLengthBytes = 32;
+  static const int sha256HashLengthBytes = 32;
+  static const int pbkdf2Iterations = 600000;
+  static const String passwordPepper = String.fromEnvironment('AUTH_PASSWORD_PEPPER');
 
   static const String emailRegex =
-      r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$';
+      r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$';
   static const String uppercaseRegex = r'[A-Z]';
   static const String lowercaseRegex = r'[a-z]';
   static const String digitRegex = r'[0-9]';
-  static const String specialCharRegex = r'[!@#\\$%^&*(),.?":{}|<>]';
+  static const String specialCharRegex = r'[!@#$%^&*(),.?":{}|<>[\]_\-+=~`;/\\]';
 
   static const String invalidEmailMessage = 'Please enter a valid email address.';
   static const String weakPasswordMessage =

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import '../exceptions/auth_exception.dart';
@@ -12,7 +14,9 @@ import '../utils/constants.dart';
 import '../validators/form_validator.dart';
 
 class AuthService extends ChangeNotifier {
-  AuthService({required AuthRepository repository}) : _repository = repository;
+  AuthService({required AuthRepository repository}) : _repository = repository {
+    _resolvePepper();
+  }
 
   final AuthRepository _repository;
   AppUser? _currentUser;
@@ -26,17 +30,17 @@ class AuthService extends ChangeNotifier {
     required String password,
     required String confirmPassword,
   }) async {
+    final validation = FormValidator.validateSignUp(
+      email: email,
+      password: password,
+      confirmPassword: confirmPassword,
+    );
+    if (validation.hasError) {
+      return _mapAuthException(_mapValidationError(validation));
+    }
+
     _setLoading(true);
     try {
-      final validation = FormValidator.validateSignUp(
-        email: email,
-        password: password,
-        confirmPassword: confirmPassword,
-      );
-      if (validation.hasError) {
-        throw _mapValidationError(validation);
-      }
-
       final existingUser = await _repository.findByEmail(email.trim());
       if (existingUser != null) {
         throw const AuthException(
@@ -61,10 +65,15 @@ class AuthService extends ChangeNotifier {
       return AuthResponse.success(message: 'Sign-up successful.', user: user);
     } on AuthException catch (error) {
       return _mapAuthException(error);
-    } on Exception {
+    } on AuthRepositoryNetworkException {
       return AuthResponse.failure(
         status: AuthStatus.networkError,
         message: AuthConstants.networkErrorMessage,
+      );
+    } on Exception {
+      return AuthResponse.failure(
+        status: AuthStatus.unknownError,
+        message: AuthConstants.unknownErrorMessage,
       );
     } finally {
       _setLoading(false);
@@ -75,13 +84,13 @@ class AuthService extends ChangeNotifier {
     required String email,
     required String password,
   }) async {
+    final validation = FormValidator.validateLogin(email: email, password: password);
+    if (validation.hasError) {
+      return _mapAuthException(_mapValidationError(validation));
+    }
+
     _setLoading(true);
     try {
-      final validation = FormValidator.validateLogin(email: email, password: password);
-      if (validation.hasError) {
-        throw _mapValidationError(validation);
-      }
-
       final user = await _repository.findByEmail(email.trim());
       if (user == null) {
         throw const AuthException(
@@ -103,10 +112,15 @@ class AuthService extends ChangeNotifier {
       return AuthResponse.success(message: 'Login successful.', user: user);
     } on AuthException catch (error) {
       return _mapAuthException(error);
-    } on Exception {
+    } on AuthRepositoryNetworkException {
       return AuthResponse.failure(
         status: AuthStatus.networkError,
         message: AuthConstants.networkErrorMessage,
+      );
+    } on Exception {
+      return AuthResponse.failure(
+        status: AuthStatus.unknownError,
+        message: AuthConstants.unknownErrorMessage,
       );
     } finally {
       _setLoading(false);
@@ -119,16 +133,13 @@ class AuthService extends ChangeNotifier {
       case ValidationErrorType.emailEmpty:
         return AuthException(
           type: AuthExceptionType.invalidEmail,
-          message: validation.message.isEmpty
-              ? AuthConstants.invalidEmailMessage
-              : validation.message,
+          message: _messageOrDefault(validation.message, AuthConstants.invalidEmailMessage),
         );
       case ValidationErrorType.weakPassword:
       case ValidationErrorType.passwordEmpty:
         return AuthException(
           type: AuthExceptionType.weakPassword,
-          message:
-              validation.message.isEmpty ? AuthConstants.weakPasswordMessage : validation.message,
+          message: _messageOrDefault(validation.message, AuthConstants.weakPasswordMessage),
         );
       case ValidationErrorType.passwordsDoNotMatch:
       case ValidationErrorType.confirmPasswordEmpty:
@@ -170,20 +181,86 @@ class AuthService extends ChangeNotifier {
 
   String _generateSalt() {
     final random = Random.secure();
-    final values = List<int>.generate(16, (_) => random.nextInt(256));
+    final values =
+        List<int>.generate(AuthConstants.saltLengthBytes, (_) => random.nextInt(256));
     return base64UrlEncode(values);
   }
 
   String _hashPassword(String password, String salt) {
-    var result = '$salt|$password|${AuthConstants.passwordPepper}';
-    for (var i = 0; i < 1000; i++) {
-      result = base64UrlEncode(utf8.encode(result));
-    }
-    return result;
+    final passwordBytes = utf8.encode('$password${_resolvePepper()}');
+    final saltBytes = base64Url.decode(_normalizeBase64(salt));
+    final derived = _pbkdf2HmacSha256(
+      passwordBytes: passwordBytes,
+      salt: saltBytes,
+      iterations: AuthConstants.pbkdf2Iterations,
+      keyLength: AuthConstants.sha256HashLengthBytes,
+    );
+    return base64UrlEncode(derived);
   }
 
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
+  }
+
+  String _messageOrDefault(String message, String fallback) {
+    return message.isEmpty ? fallback : message;
+  }
+
+  String _resolvePepper() {
+    if (AuthConstants.passwordPepper.isEmpty) {
+      throw const AuthException(
+        type: AuthExceptionType.unknown,
+        message: 'AUTH_PASSWORD_PEPPER environment variable is not configured.',
+      );
+    }
+    return AuthConstants.passwordPepper;
+  }
+
+  List<int> _pbkdf2HmacSha256({
+    required List<int> passwordBytes,
+    required List<int> salt,
+    required int iterations,
+    required int keyLength,
+  }) {
+    const hashLength = AuthConstants.sha256HashLengthBytes;
+    final blockCount = (keyLength / hashLength).ceil();
+    final output = <int>[];
+
+    for (var blockIndex = 1; blockIndex <= blockCount; blockIndex++) {
+      var u = _hmacSha256(passwordBytes, [...salt, ..._int32Be(blockIndex)]);
+      final t = Uint8List.fromList(u);
+
+      for (var i = 1; i < iterations; i++) {
+        u = _hmacSha256(passwordBytes, u);
+        for (var j = 0; j < t.length; j++) {
+          t[j] ^= u[j];
+        }
+      }
+      output.addAll(t);
+    }
+
+    return output.sublist(0, keyLength);
+  }
+
+  List<int> _hmacSha256(List<int> key, List<int> data) {
+    return Hmac(sha256, key).convert(data).bytes;
+  }
+
+  List<int> _int32Be(int value) {
+    return <int>[
+      (value >> 24) & 0xff,
+      (value >> 16) & 0xff,
+      (value >> 8) & 0xff,
+      value & 0xff,
+    ];
+  }
+
+  String _normalizeBase64(String value) {
+    final missingPadding = value.length % 4;
+    if (missingPadding == 0) {
+      return value;
+    }
+    return value.padRight(value.length + (4 - missingPadding), '=');
   }
 }

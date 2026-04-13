@@ -29,3 +29,7 @@ Flutter authentication backend structure added under `lib/` with:
 
 ## Notification trigger
 Both screens call `NotificationHelper.showError(...)` / `NotificationHelper.showSuccess(...)` in each `switch` case when button actions complete.
+
+## Note
+`AuthService` uses PBKDF2-HMAC-SHA256 for password hashing (`package:crypto/crypto.dart`). Add `crypto` in your Flutter project's `pubspec.yaml` if not already present.
+Set a runtime/app-specific pepper with `--dart-define=AUTH_PASSWORD_PEPPER=your-secret-pepper` (required by `AuthService`).

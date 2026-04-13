@@ -39,23 +39,21 @@ class _SignupScreenState extends State<SignupScreen> {
         NotificationHelper.showSuccess(context, response.message);
         break;
       case AuthStatus.invalidEmail:
-        NotificationHelper.showError(context, AuthConstants.invalidEmailMessage);
+        NotificationHelper.showError(context, response.message);
         break;
       case AuthStatus.weakPassword:
-        NotificationHelper.showError(context, AuthConstants.weakPasswordMessage);
+        NotificationHelper.showError(context, response.message);
         break;
       case AuthStatus.passwordsDoNotMatch:
-        NotificationHelper.showError(context, AuthConstants.passwordMismatchMessage);
+        NotificationHelper.showError(context, response.message);
         break;
       case AuthStatus.userAlreadyExists:
-        NotificationHelper.showError(context, AuthConstants.userExistsMessage);
+        NotificationHelper.showError(context, response.message);
         break;
       case AuthStatus.networkError:
-        NotificationHelper.showError(context, AuthConstants.networkErrorMessage);
+        NotificationHelper.showError(context, response.message);
         break;
-      case AuthStatus.userNotFound:
-      case AuthStatus.wrongPassword:
-      case AuthStatus.unknownError:
+      default:
         NotificationHelper.showError(
           context,
           response.message.isEmpty ? AuthConstants.unknownErrorMessage : response.message,

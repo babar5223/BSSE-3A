@@ -4,8 +4,6 @@ abstract class AuthRepository {
   Future<AppUser?> findByEmail(String email);
 
   Future<void> saveUser(AppUser user);
-
-  void setSimulatedNetworkFailure(bool value);
 }
 
 class InMemoryAuthRepository implements AuthRepository {
@@ -24,18 +22,20 @@ class InMemoryAuthRepository implements AuthRepository {
     _users[user.email.toLowerCase()] = user;
   }
 
-  @override
   void setSimulatedNetworkFailure(bool value) {
-    _simulateNetworkFailure = value;
+    assert(() {
+      _simulateNetworkFailure = value;
+      return true;
+    }());
   }
 
   void _throwIfNetworkError() {
     if (_simulateNetworkFailure) {
-      throw const _NetworkFailure();
+      throw const AuthRepositoryNetworkException();
     }
   }
 }
 
-class _NetworkFailure implements Exception {
-  const _NetworkFailure();
+class AuthRepositoryNetworkException implements Exception {
+  const AuthRepositoryNetworkException();
 }
